@@ -4,8 +4,6 @@ import * as d3 from 'd3';
 const StockChart = ({ data, referencePoint = 110 }) => {
     const svgRef = useRef();
     const tooltipRef = useRef();
-    const verticalLineRef = useRef();
-    const verticalBlockRef = useRef();
 
     useEffect(() => {
         const svg = d3.select(svgRef.current);
@@ -63,6 +61,63 @@ const StockChart = ({ data, referencePoint = 110 }) => {
             .attr('stroke-width', 1)
             .attr('stroke-dasharray', '3,3');
 
+        // Define the red shadow filter
+        const defs = svg.append('defs');
+
+        const filter = defs.append('filter')
+            .attr('id', 'redGlow')
+            .attr('width', '300%')
+            .attr('height', '300%')
+            .attr('x', '-100%')
+            .attr('y', '-100%');
+
+        filter.append('feFlood')
+            .attr('result', 'flood')
+            .attr('flood-color', 'red')
+            .attr('flood-opacity', '1');
+
+        filter.append('feComposite')
+            .attr('in', 'flood')
+            .attr('in2', 'SourceGraphic')
+            .attr('operator', 'in')
+            .attr('result', 'mask');
+
+        filter.append('feGaussianBlur')
+            .attr('in', 'mask')
+            .attr('stdDeviation', '3')
+            .attr('result', 'blur');
+
+        const feMerge = filter.append('feMerge');
+        feMerge.append('feMergeNode').attr('in', 'blur');
+        feMerge.append('feMergeNode').attr('in', 'SourceGraphic');
+
+        const greenFilter = defs.append('filter')
+            .attr('id', 'greenGlow')
+            .attr('width', '300%')
+            .attr('height', '300%')
+            .attr('x', '-100%')
+            .attr('y', '-100%');
+
+        greenFilter.append('feFlood')
+            .attr('result', 'flood')
+            .attr('flood-color', 'green')
+            .attr('flood-opacity', '1');
+
+        greenFilter.append('feComposite')
+            .attr('in', 'flood')
+            .attr('in2', 'SourceGraphic')
+            .attr('operator', 'in')
+            .attr('result', 'mask');
+
+        greenFilter.append('feGaussianBlur')
+            .attr('in', 'mask')
+            .attr('stdDeviation', '3')
+            .attr('result', 'blur');
+
+        const greenFeMerge = greenFilter.append('feMerge');
+        greenFeMerge.append('feMergeNode').attr('in', 'blur');
+        greenFeMerge.append('feMergeNode').attr('in', 'SourceGraphic');
+
         // Function to split data into segments based on reference point
         const splitDataByReference = (data, reference) => {
             const segments = [];
@@ -99,13 +154,13 @@ const StockChart = ({ data, referencePoint = 110 }) => {
             .x(d => x(d.date))
             .y0(y(referencePoint))
             .y1(d => y(d.price))
-            .curve(d3.curveBasis);
+            .curve(d3.curveLinear);
 
         // Define the line generator
         const line = d3.line()
             .x(d => x(d.date))
             .y(d => y(d.price))
-            .curve(d3.curveBasis);
+            .curve(d3.curveLinear);
 
         // Draw the areas and lines for each segment
         segments.forEach(segment => {
@@ -113,14 +168,14 @@ const StockChart = ({ data, referencePoint = 110 }) => {
             g.append('path')
                 .datum(segment)
                 .attr('fill', isAbove ? 'green' : 'red')
-                .attr('opacity', 0.3)
+                .attr('opacity', 0.25)
                 .attr('d', area);
             g.append('path')
                 .datum(segment)
                 .attr('fill', 'none')
                 .attr('stroke', isAbove ? 'green' : 'red')
                 .attr('stroke-width', 3)
-                .attr('opacity', 0.6)
+                .attr('opacity', 1)
                 .attr('d', line);
         });
 
@@ -133,7 +188,7 @@ const StockChart = ({ data, referencePoint = 110 }) => {
         g.append('g')
             .call(d3.axisLeft(y));
 
-        // Tooltip, vertical line, and vertical block
+        // Tooltip, vertical line, vertical block, and highlight circle
         const tooltip = d3.select(tooltipRef.current)
             .style('position', 'absolute')
             .style('background', '#fff')
@@ -149,8 +204,16 @@ const StockChart = ({ data, referencePoint = 110 }) => {
             .style('opacity', 0);
 
         const verticalBlock = g.append('rect')
-            .attr('fill', 'lightblue')
+            .attr('fill', 'lightgray')
             .style('opacity', 0);
+
+        const highlightCircle = g.append('circle')
+            .attr('fill', 'white')
+            .attr('stroke', 'red')
+            .attr('stroke-width', 2)
+            .attr('r', 5)
+            .style('opacity', 0)
+            .attr('filter', 'url(#redGlow)');
 
         // Add mouse event handlers
         svg.on('mousemove', (event) => {
@@ -170,10 +233,13 @@ const StockChart = ({ data, referencePoint = 110 }) => {
                 ? leftData.price + ((date - leftData.date) / (nextData.date - leftData.date)) * (nextData.price - leftData.price)
                 : leftData.price;
 
+            const circleX = x(date);
+            const circleY = y(interpolatedPrice);
+
             verticalLine
-                .attr('x1', x(date))
+                .attr('x1', circleX)
                 .attr('y1', 0)
-                .attr('x2', x(date))
+                .attr('x2', circleX)
                 .attr('y2', height)
                 .style('opacity', 1);
 
@@ -184,24 +250,28 @@ const StockChart = ({ data, referencePoint = 110 }) => {
                 .attr('height', height)
                 .style('opacity', 0.3);
 
+            highlightCircle
+                .attr('cx', circleX)
+                .attr('cy', circleY)
+                .style('opacity', 1)
+                .attr('stroke', interpolatedPrice >= referencePoint ? 'green' : 'red')
+                .attr('filter', interpolatedPrice >= referencePoint ? 'url(#greenGlow)' : 'url(#redGlow)');
+
             tooltip.html(`Price: ${interpolatedPrice.toFixed(2)}`)
-                .style('left', `${x(date) + margin.left + 30}px`)
-                .style('top', `${margin.top - 30}px`)
+                .style('left', `${circleX + margin.left + 15}px`)
+                .style('top', `${circleY + margin.top - 15}px`)
                 .style('opacity', 1);
-        }).on('mouseout', () => {
-            verticalLine.style('opacity', 0);
-            verticalBlock.style('opacity', 0);
-            tooltip.style('opacity', 0);
         }).on('mouseleave', () => {
             verticalLine.style('opacity', 0);
             verticalBlock.style('opacity', 0);
+            highlightCircle.style('opacity', 0);
             tooltip.style('opacity', 0);
         });
     }, [data, referencePoint]);
 
     return (
         <>
-            <svg ref={svgRef} width="760" height="400"></svg>
+            <svg ref={svgRef} width="800" height="400"></svg>
             <div ref={tooltipRef} className="tooltip"></div>
         </>
     );
